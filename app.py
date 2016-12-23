@@ -131,14 +131,17 @@ def generate_mock_pod(index, i, j):
     phase = pod_phases[hash_int((index + 1) * (i + 1) * (j + 1)) % len(pod_phases)]
     containers = []
     for k in range(1):
-        containers.append({'name': 'myapp', 'image': 'foo/bar/{}'.format(j), 'resources': {'requests': {'cpu': '100m', 'memory': '100Mi'}}})
+        containers.append({'name': 'myapp', 'image': 'foo/bar/{}'.format(j),
+                           'resources': {'requests': {'cpu': '100m', 'memory': '100Mi'}}})
     status = {'phase': phase}
     if phase == 'Running':
         if j % 13 == 0:
             status['containerStatuses'] = [{'ready': False, 'state': {'waiting': {'reason': 'CrashLoopBackOff'}}}]
         elif j % 7 == 0:
             status['containerStatuses'] = [{'ready': True, 'state': {'running': {}}, 'restartCount': 3}]
-    pod = {'name': '{}-{}-{}'.format(names[hash_int((i + 1) * (j + 1)) % len(names)], i, j), 'namespace': 'kube-system' if j < 3 else 'default', 'labels': labels, 'status': status, 'containers': containers}
+    pod = {'name': '{}-{}-{}'.format(names[hash_int((i + 1) * (j + 1)) % len(names)], i, j),
+           'namespace': 'kube-system' if j < 3 else 'default', 'labels': labels, 'status': status,
+           'containers': containers}
     return pod
 
 
@@ -155,7 +158,8 @@ def generate_mock_cluster_data(index: int):
                 pass
             else:
                 pods.append(generate_mock_pod(index, i, j))
-        nodes.append({'name': 'node-{}'.format(i), 'labels': labels, 'status': {'capacity': {'cpu': '4', 'memory': '32Gi', 'pods': '110'}}, 'pods': pods})
+        nodes.append({'name': 'node-{}'.format(i), 'labels': labels,
+                      'status': {'capacity': {'cpu': '4', 'memory': '32Gi', 'pods': '110'}}, 'pods': pods})
     unassigned_pods = [generate_mock_pod(index, 11, index)]
     return {
         'api_server_url': 'https://kube-{}.example.org'.format(index),
@@ -195,9 +199,12 @@ def get_kubernetes_clusters():
                    'namespace': pod['metadata']['namespace'],
                    'labels': pod['metadata'].get('labels', {}),
                    'status': pod['status'],
-                   'startTime': pod['status']['startTime'] if 'startTime' in pod['status'] else '',
                    'containers': []
                    }
+            if 'startTime' in pod['status']:
+                obj['startTime'] = datetime.datetime.strptime(pod['status']['startTime'],
+                                                              '%Y-%m-%dT%H:%M:%SZ').replace(
+                    tzinfo=datetime.timezone.utc).timestamp()
             if 'deletionTimestamp' in pod['metadata']:
                 obj['deleted'] = datetime.datetime.strptime(pod['metadata']['deletionTimestamp'],
                                                             '%Y-%m-%dT%H:%M:%SZ').replace(
@@ -209,9 +216,62 @@ def get_kubernetes_clusters():
                 nodes_by_name[pod['spec']['nodeName']]['pods'].append(obj)
             else:
                 unassigned_pods.append(obj)
+        # getting services
+        response = session.get(urljoin(api_server_url, '/api/v1/service'), timeout=5)
+        response.raise_for_status()
+        services = []
+        services_by_name = {}
+        for service in response.json()['items']:
+            '''
+            "metadata": {
+                "name": "etcd",
+                "namespace": "acid",
+                "selfLink": "/api/v1/namespaces/acid/services/etcd",
+                "uid": "957d744d-c5c4-11e6-9bbf-023e26f103d7",
+                "resourceVersion": "4491715",
+                "creationTimestamp": "2016-12-19T08:24:39Z",
+                "labels": {
+                    "app": "etcd",
+                    "etcd_cluster": "etcd"
+                }
+            },
+            "spec": {
+                "ports": [
+                  {
+                    "name": "client",
+                    "protocol": "TCP",
+                    "port": 2379,
+                    "targetPort": 2379
+                  }
+                ],
+                "selector": {
+                  "app": "etcd",
+                  "etcd_cluster": "etcd"
+                },
+                "clusterIP": "10.3.0.118",
+                "type": "ClusterIP",
+                "sessionAffinity": "None"
+              },
+            '''
+
+            obj = {
+                'name': service['metadata']['name'],
+                'namespace': service['metadata']['namespace'],
+                'labels': service['metadata'].get('namespace', {}),
+                'clusterIP': service['spec']['clusterIP'],
+                'ports': [service_port['port'] for service_port in service['spec']['ports']],
+                'selector': service['spec']['selector'],
+                'type':service['spec']['type']
+            }
+            if 'creationTimestamp' in service['metadata']:
+                obj['creationTimestamp'] = datetime.datetime.strptime(
+                    service['metadata']['creationTimestamp'],
+                    '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc).timestamp()
 
         try:
-            response = session.get(urljoin(api_server_url, '/api/v1/namespaces/kube-system/services/heapster/proxy/apis/metrics/v1alpha1/nodes'), timeout=5)
+            response = session.get(urljoin(api_server_url,
+                                           '/api/v1/namespaces/kube-system/services/heapster/proxy/apis/metrics/v1alpha1/nodes'),
+                                   timeout=5)
             response.raise_for_status()
             for metrics in response.json()['items']:
                 nodes_by_name[metrics['metadata']['name']]['usage'] = metrics['usage']
