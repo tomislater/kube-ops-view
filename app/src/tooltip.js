@@ -1,3 +1,5 @@
+import App from './app.js'
+
 const PIXI = require('pixi.js')
 
 export default class Tooltip extends PIXI.Graphics {
@@ -17,8 +19,8 @@ export default class Tooltip extends PIXI.Graphics {
 
     draw () {
         this.clear()
-        this.lineStyle(2, 0x333333, 0.8)
-        this.beginFill(0x333333, 0.8)
+        this.lineStyle(2, App.current.theme.secondaryColor, 0.8)
+        this.beginFill(App.current.theme.secondaryColor, 0.8)
         this.drawRect(0, 0, this.text.width + 8, this.text.height + 8)
         this.endFill()
     }

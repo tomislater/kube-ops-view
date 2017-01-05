@@ -47,25 +47,26 @@ export default class Node extends PIXI.Graphics {
     draw() {
         const nodeBox = this
         const topHandle = new PIXI.Graphics()
-        topHandle.beginFill(0xaaaaff, 1)
+        topHandle.beginFill(App.current.theme.primaryColor, 1)
         topHandle.drawRect(0, 0, 105, 15)
         topHandle.endFill()
-        const ellipsizedNodeName = this.node.name.substring(0, 18).concat('...')
+        const ellipsizedNodeName = this.node.name.length > 17 ? this.node.name.substring(0, 17).concat('…') : this.node.name
         const text = new PIXI.Text(ellipsizedNodeName, {fontFamily: 'ShareTechMono', fontSize: 10, fill: 0x000000})
         text.x = 2
         text.y = 2
         topHandle.addChild(text)
         nodeBox.addChild(topHandle)
-        nodeBox.lineStyle(2, 0xaaaaff, 1)
-        nodeBox.beginFill(0x999999, 0.5)
+        nodeBox.lineStyle(2, App.current.theme.primaryColor, 1)
+        nodeBox.beginFill(App.current.theme.secondaryColor, 1)
         nodeBox.drawRect(0, 0, 105, 115)
         nodeBox.endFill()
         nodeBox.lineStyle(2, 0xaaaaaa, 1)
         topHandle.interactive = true
         topHandle.on('mouseover', function () {
             let s = nodeBox.node.name
-            for (const key of Object.keys(nodeBox.node.labels)) {
-                s += '\n' + key + ': ' + nodeBox.node.labels[key]
+            s += '\nLabels:'
+            for (const key of Object.keys(nodeBox.node.labels).sort()) {
+                s += '\n  ' + key + ': ' + nodeBox.node.labels[key]
             }
             nodeBox.tooltip.setText(s)
             nodeBox.tooltip.position = nodeBox.toGlobal(new PIXI.Point(0, 15))
@@ -80,7 +81,7 @@ export default class Node extends PIXI.Graphics {
         bars.y = 1
         nodeBox.addChild(bars.draw())
 
-        nodeBox.addPods(App.sorterFn)
+        nodeBox.addPods(App.current.sorterFn)
         return nodeBox
     }
 
@@ -88,7 +89,7 @@ export default class Node extends PIXI.Graphics {
         const nodeBox = this
         let px = 24
         let py = 20
-        const pods = sorterFn !== 'undefined' ? this.node.pods.sort(sorterFn) : this.node.pods
+        const pods = this.node.pods.sort(sorterFn)
         for (const pod of pods) {
             if (pod.namespace != 'kube-system') {
                 const podBox = Pod.getOrCreate(pod, this.cluster, this.tooltip)

@@ -1,44 +1,54 @@
-import { PRIMARY_VIOLET } from './colors.js'
 import App from './app'
 
 const PIXI = require('pixi.js')
 
 export default class SelectBox extends PIXI.Graphics {
-    constructor(items) {
+    constructor(items, value, onchange) {
         super()
         this.items = items
+        this.value = value
         this.count = 0
+        for (const item of items) {
+            if (item.value == value) {
+                break
+            }
+            this.count++
+        }
+        if (this.count >= items.length) {
+            this.count = 0
+        }
         this.text = new PIXI.Text(this.items[this.count].text, {
             fontFamily: 'ShareTechMono',
             fontSize: 14,
-            fill: 0x000000,
+            fill: App.current.theme.primaryColor,
             align: 'center'
         })
         this.text.x = 10
-        this.text.y = 8
+        this.text.y = 5
         this.addChild(this.text)
+        this.onchange = onchange
     }
 
     onForwardPressed() {
         const selectBox = this
-        if (selectBox.count + 1 < this.items.length) {
-            selectBox.count++
-        } else {
+        selectBox.count++
+        if (selectBox.count >= this.items.length) {
             selectBox.count = 0
         }
         selectBox.text.text = selectBox.items[selectBox.count].text
-        App.sorterFn = selectBox.items[selectBox.count].sorterFn
+        this.value = this.items[this.count].value
+        this.onchange(this.value)
     }
 
     onBackPressed() {
         const selectBox = this
-        if (selectBox.count - 1 > 0) {
-            selectBox.count--
-        } else {
+        selectBox.count--
+        if (selectBox.count < 0) {
             selectBox.count = selectBox.items.length - 1
         }
         selectBox.text.text = selectBox.items[selectBox.count].text
-        App.sorterFn = selectBox.items[selectBox.count].sorterFn
+        this.value = this.items[this.count].value
+        this.onchange(this.value)
     }
 
     draw() {
@@ -50,27 +60,35 @@ export default class SelectBox extends PIXI.Graphics {
         forwardArrow.interactive = true
         selectBox.interactive = true
 
+        // FIXME: hardcoded value for average char width..
+        const textBoxWidth = 10 + 8 * Math.max.apply(Math, this.items.map(item => item.text.length))
+        const arrowBoxWidth = 18
+
         // draw a triangle
-        backArrow.lineStyle(2, 0x000000, 1)
-        backArrow.beginFill(PRIMARY_VIOLET, 0.5)
-        backArrow.moveTo(0, 2)
-        backArrow.lineTo(-20, 14)
-        backArrow.lineTo(0, 26)
-        backArrow.lineTo(0, 2)
+        backArrow.beginFill(App.current.theme.secondaryColor, 1)
+        backArrow.drawRect(-18, 0, arrowBoxWidth, 22)
+        backArrow.lineStyle(1, App.current.theme.primaryColor, 1)
+        backArrow.beginFill(App.current.theme.secondaryColor, 1)
+        backArrow.moveTo(-4, 5)
+        backArrow.lineTo(-15, 11)
+        backArrow.lineTo(-4, 17)
+        backArrow.lineTo(-4, 5)
         backArrow.endFill()
         selectBox.addChild(backArrow)
 
-        selectBox.lineStyle(2, 0x000000, 1)
-        selectBox.beginFill(PRIMARY_VIOLET, 0.5)
-        selectBox.drawRoundedRect(4, 0, 100, 28, 5)
+        selectBox.lineStyle(1, App.current.theme.primaryColor, 1)
+        selectBox.beginFill(App.current.theme.secondaryColor, 0.5)
+        selectBox.drawRect(4, 0, textBoxWidth, 22)
         selectBox.endFill()
 
-        forwardArrow.lineStyle(2, 0x000000, 1)
-        forwardArrow.beginFill(PRIMARY_VIOLET, 0.5)
-        forwardArrow.moveTo(108, 2)
-        forwardArrow.lineTo(128, 14)
-        forwardArrow.lineTo(108, 26)
-        forwardArrow.lineTo(108, 2)
+        forwardArrow.beginFill(App.current.theme.secondaryColor, 1)
+        forwardArrow.drawRect(textBoxWidth + 8, 0, arrowBoxWidth, 22)
+        forwardArrow.lineStyle(1, App.current.theme.primaryColor, 1)
+        forwardArrow.beginFill(App.current.theme.secondaryColor, 1)
+        forwardArrow.moveTo(textBoxWidth + 11, 5)
+        forwardArrow.lineTo(textBoxWidth + 22, 11)
+        forwardArrow.lineTo(textBoxWidth + 11, 17)
+        forwardArrow.lineTo(textBoxWidth + 11, 5)
         forwardArrow.endFill()
         selectBox.addChild(forwardArrow)
 
