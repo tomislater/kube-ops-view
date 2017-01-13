@@ -134,14 +134,17 @@ def generate_mock_pod(index: int, i: int, j: int):
     phase = pod_phases[hash_int((index + 1) * (i + 1) * (j + 1)) % len(pod_phases)]
     containers = []
     for k in range(1 + j % 2):
-        containers.append({'name': 'myapp', 'image': 'foo/bar/{}'.format(j), 'resources': {'requests': {'cpu': '100m', 'memory': '100Mi'}, 'limits': {}}})
+        containers.append({'name': 'myapp', 'image': 'foo/bar/{}'.format(j),
+                           'resources': {'requests': {'cpu': '100m', 'memory': '100Mi'}, 'limits': {}}})
     status = {'phase': phase}
     if phase == 'Running':
         if j % 13 == 0:
             status['containerStatuses'] = [{'ready': False, 'state': {'waiting': {'reason': 'CrashLoopBackOff'}}}]
         elif j % 7 == 0:
             status['containerStatuses'] = [{'ready': True, 'state': {'running': {}}, 'restartCount': 3}]
-    pod = {'name': '{}-{}-{}'.format(names[hash_int((i + 1) * (j + 1)) % len(names)], i, j), 'namespace': 'kube-system' if j < 3 else 'default', 'labels': labels, 'status': status, 'containers': containers}
+    pod = {'name': '{}-{}-{}'.format(names[hash_int((i + 1) * (j + 1)) % len(names)], i, j),
+           'namespace': 'kube-system' if j < 3 else 'default', 'labels': labels, 'status': status,
+           'containers': containers}
     if phase == 'Running' and j % 17 == 0:
         pod['deleted'] = 123
 
@@ -234,43 +237,10 @@ def get_kubernetes_clusters(cluster_ids: set):
             else:
                 unassigned_pods.append(obj)
         # getting services
-        response = session.get(urljoin(api_server_url, '/api/v1/service'), timeout=5)
+        response = session.get(urljoin(api_server_url, '/api/v1/services'), timeout=5)
         response.raise_for_status()
         services = []
-        services_by_name = {}
         for service in response.json()['items']:
-            '''
-            "metadata": {
-                "name": "etcd",
-                "namespace": "acid",
-                "selfLink": "/api/v1/namespaces/acid/services/etcd",
-                "uid": "957d744d-c5c4-11e6-9bbf-023e26f103d7",
-                "resourceVersion": "4491715",
-                "creationTimestamp": "2016-12-19T08:24:39Z",
-                "labels": {
-                    "app": "etcd",
-                    "etcd_cluster": "etcd"
-                }
-            },
-            "spec": {
-                "ports": [
-                  {
-                    "name": "client",
-                    "protocol": "TCP",
-                    "port": 2379,
-                    "targetPort": 2379
-                  }
-                ],
-                "selector": {
-                  "app": "etcd",
-                  "etcd_cluster": "etcd"
-                },
-                "clusterIP": "10.3.0.118",
-                "type": "ClusterIP",
-                "sessionAffinity": "None"
-              },
-            '''
-
             obj = {
                 'name': service['metadata']['name'],
                 'namespace': service['metadata']['namespace'],
@@ -278,12 +248,35 @@ def get_kubernetes_clusters(cluster_ids: set):
                 'clusterIP': service['spec']['clusterIP'],
                 'ports': [service_port['port'] for service_port in service['spec']['ports']],
                 'selector': service['spec']['selector'],
-                'type':service['spec']['type']
+                'type': service['spec']['type']
             }
             if 'creationTimestamp' in service['metadata']:
                 obj['creationTimestamp'] = datetime.datetime.strptime(
                     service['metadata']['creationTimestamp'],
                     '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc).timestamp()
+            # getting endpoints for that specific service
+
+            response = session.get(urljoin(api_server_url,
+                                           '/api/v1/namespaces/{namespace}/endpoints/{service_name}'.format(
+                                               namespace=obj['namespace'], service_name=['name'])), timeout=5)
+            response.raise_for_status()
+            obj.endpoints = []
+            for subset in response.json()['subsets']:
+                endpoint = {
+                    'ports': [endpoint_port['port'] for endpoint_port in subset['ports']]
+                    'addresses': []
+                }
+                for address in subset['addresses']:
+                    address_item = {
+                        'ip': address['ip'],
+                        'nodeName': address['nodeName'],
+                        'kind': address['targetRef']['kind'],
+                        'namespace': address['targetRef']['namespace'],
+                        'name': address['targetRef']['name']
+                    }
+                    endpoint['addresses'].append(address_item)
+                obj.endpoints.append(endpoint)
+            services.append(obj)
 
         try:
             response = session.get(urljoin(api_server_url,
@@ -308,7 +301,8 @@ def get_kubernetes_clusters(cluster_ids: set):
                                 container['resources']['usage'] = container_metrics['usage']
         except:
             logging.exception('Failed to get metrics')
-        clusters.append({'id': cluster_id, 'api_server_url': api_server_url, 'nodes': nodes, 'unassigned_pods': unassigned_pods})
+        clusters.append(
+            {'id': cluster_id, 'api_server_url': api_server_url, 'nodes': nodes, 'unassigned_pods': unassigned_pods})
     return clusters
 
 
