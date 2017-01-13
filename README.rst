@@ -2,6 +2,10 @@
 Kubernetes Operational View
 ===========================
 
+.. image:: https://readthedocs.org/projects/kubernetes-operational-view/badge/?version=latest
+   :target: http://kubernetes-operational-view.readthedocs.io/en/latest/?badge=latest
+   :alt: Documentation Status
+
 **This project is in pre-alpha, but it might already be useful.**
 
 .. image:: screenshot.png
@@ -106,18 +110,30 @@ The following environment variables are supported:
     Set to "true" for local development to reload code changes.
 ``MOCK``
     Set to "true" to mock Kubernetes cluster data.
+``REDIS_URL``
+    Optional Redis server to use for pub/sub events and job locking when running more than one replica. Example: ``redis://my-redis:6379``
+``SERVER_PORT``
+    HTTP port to listen on. It defaults to ``8080``.
 
 
 Supported Browsers
 ==================
 
-The UI uses WebGL and ECMAScript 6 features.
+The UI uses WebGL, ECMAScript 6, and EventSource features.
 The following browsers are known to work:
 
 * Chrome/Chromium 53.0+
 * Mozilla Firefox 49.0+
 
 See the `ECMAScript 6 Compatibility Table`_ for details on supported browser versions.
+
+Contributing
+============
+
+Easiest way to contribute is to provide feedback! We would love to hear what you like and what you think is missing.
+Create an issue or `ping try_except_ on Twitter`_.
+
+PRs are welcome. Please also have a look at `issues labeled with "help wanted"`_.
 
 
 License
@@ -138,3 +154,5 @@ along with this program.  If not, see http://www.gnu.org/licenses/.
 
 .. _Kubernetes Dashboard: https://github.com/kubernetes/dashboard
 .. _ECMAScript 6 Compatibility Table: https://kangax.github.io/compat-table/es6/
+.. _ping try_except_ on Twitter: https://twitter.com/try_except_
+.. _issues labeled with "help wanted": https://github.com/hjacobs/kube-ops-view/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22

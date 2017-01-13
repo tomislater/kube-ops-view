@@ -6,6 +6,7 @@ gevent.monkey.patch_all()
 
 import flask
 import functools
+import gevent
 import gevent.wsgi
 import json
 import logging
@@ -13,12 +14,131 @@ import os
 import re
 import requests
 import datetime
+import random
+import redis
+import signal
+import string
 import time
 import tokens
+from queue import Queue
+from redlock import Redlock
 
 from flask import Flask, redirect
 from flask_oauthlib.client import OAuth, OAuthRemoteApp
 from urllib.parse import urljoin
+
+ONE_YEAR = 3600 * 24 * 365
+
+logging.basicConfig(level=logging.INFO)
+
+
+def generate_token(n: int):
+    '''Generate a random ASCII token of length n'''
+    # uses os.urandom()
+    rng = random.SystemRandom()
+    return ''.join([rng.choice(string.ascii_letters + string.digits) for i in range(n)])
+
+
+def generate_token_data():
+    '''Generate screen token data for storing'''
+    token = generate_token(10)
+    now = time.time()
+    return {'token': token, 'created': now, 'expires': now + ONE_YEAR}
+
+
+def check_token(token: str, remote_addr: str, data: dict):
+    '''Check whether the given screen token is valid, raises exception if not'''
+    now = time.time()
+    if data and now < data['expires'] and data.get('remote_addr', remote_addr) == remote_addr:
+        data['remote_addr'] = remote_addr
+        return data
+    else:
+        raise ValueError('Invalid token')
+
+
+class MemoryStore:
+    '''Memory-only backend, mostly useful for local debugging'''
+
+    def __init__(self):
+        self._queues = []
+        self._screen_tokens = {}
+
+    def acquire_lock(self):
+        # no-op for memory store
+        return 'fake-lock'
+
+    def release_lock(self, lock):
+        # no op for memory store
+        pass
+
+    def publish(self, event_type, event_data):
+        for queue in self._queues:
+            queue.put((event_type, event_data))
+
+    def listen(self):
+        queue = Queue()
+        self._queues.append(queue)
+        try:
+            while True:
+                item = queue.get()
+                yield item
+        finally:
+            self._queues.remove(queue)
+
+    def create_screen_token(self):
+        data = generate_token_data()
+        token = data['token']
+        self._screen_tokens[token] = data
+        return token
+
+    def redeem_screen_token(self, token: str, remote_addr: str):
+        data = self._screen_tokens.get(token)
+        data = check_token(token, remote_addr, data)
+        self._screen_tokens[token] = data
+
+
+class RedisStore:
+    '''Redis-based backend for deployments with replicas > 1'''
+
+    def __init__(self, url: str):
+        logging.info('Connecting to Redis on {}..'.format(url))
+        self._redis = redis.StrictRedis.from_url(url)
+        self._redlock = Redlock([url])
+
+    def acquire_lock(self):
+        return self._redlock.lock('update', 10000)
+
+    def release_lock(self, lock):
+        self._redlock.unlock(lock)
+
+    def publish(self, event_type, event_data):
+        self._redis.publish('default', '{}:{}'.format(event_type, json.dumps(event_data, separators=(',', ':'))))
+
+    def listen(self):
+        p = self._redis.pubsub()
+        p.subscribe('default')
+        for message in p.listen():
+            if message['type'] == 'message':
+                event_type, data = message['data'].decode('utf-8').split(':', 1)
+                yield (event_type, json.loads(data))
+
+    def create_screen_token(self):
+        '''Generate a new screen token and store it in Redis'''
+        data = generate_token_data()
+        token = data['token']
+        self._redis.set('screen-tokens:{}'.format(token), json.dumps(data))
+        return token
+
+    def redeem_screen_token(self, token: str, remote_addr: str):
+        '''Validate the given token and bind it to the IP'''
+        redis_key = 'screen-tokens:{}'.format(token)
+        data = self._redis.get(redis_key)
+        if not data:
+            raise ValueError('Invalid token')
+        data = json.loads(data.decode('utf-8'))
+        data = check_token(token, remote_addr, data)
+        self._redis.set(redis_key, json.dumps(data))
+
 
 CLUSTER_ID_INVALID_CHARS = re.compile('[^a-z0-9:-]')
 
@@ -27,11 +147,15 @@ def get_bool(name: str):
     return os.getenv(name, '').lower() in ('1', 'true')
 
 
+SERVER_PORT = int(os.getenv('SERVER_PORT', 8080))
+SERVER_STATUS = {'shutdown': False}
 DEFAULT_CLUSTERS = 'http://localhost:8001/'
 CREDENTIALS_DIR = os.getenv('CREDENTIALS_DIR', '')
 AUTHORIZE_URL = os.getenv('AUTHORIZE_URL')
 APP_URL = os.getenv('APP_URL')
 MOCK = get_bool('MOCK')
+REDIS_URL = os.getenv('REDIS_URL')
+STORE = RedisStore(REDIS_URL) if REDIS_URL else MemoryStore()
 
 app = Flask(__name__)
 app.debug = get_bool('DEBUG')
@@ -94,7 +218,10 @@ tokens.manage('read-only')
 
 @app.route('/health')
 def health():
-    return 'OK'
+    if SERVER_STATUS['shutdown']:
+        flask.abort(503)
+    else:
+        return 'OK'
 
 
 @app.route('/')
@@ -183,21 +310,15 @@ def generate_mock_cluster_data(index: int):
     }
 
 
-def get_mock_clusters(cluster_ids: set):
-    clusters = []
+def get_mock_clusters():
     for i in range(3):
         data = generate_mock_cluster_data(i)
-        if not cluster_ids or data['id'] in cluster_ids:
-            clusters.append(data)
-    return clusters
+        yield data
 
 
-def get_kubernetes_clusters(cluster_ids: set):
-    clusters = []
+def get_kubernetes_clusters():
     for api_server_url in (os.getenv('CLUSTERS') or DEFAULT_CLUSTERS).split(','):
         cluster_id = generate_cluster_id(api_server_url)
-        if cluster_ids and cluster_id not in cluster_ids:
-            continue
         if 'localhost' not in api_server_url:
             # TODO: hacky way of detecting whether we need a token or not
             session.headers['Authorization'] = 'Bearer {}'.format(tokens.get('read-only'))
@@ -283,42 +404,72 @@ def get_kubernetes_clusters(cluster_ids: set):
                                            '/api/v1/namespaces/kube-system/services/heapster/proxy/apis/metrics/v1alpha1/nodes'),
                                    timeout=5)
             response.raise_for_status()
-            for metrics in response.json()['items']:
-                nodes_by_name[metrics['metadata']['name']]['usage'] = metrics['usage']
+            data = response.json()
+            if not data.get('items'):
+                logging.info('Heapster node metrics not available (yet)')
+            else:
+                for metrics in data['items']:
+                    nodes_by_name[metrics['metadata']['name']]['usage'] = metrics['usage']
         except:
-            logging.exception('Failed to get metrics')
+            logging.exception('Failed to get node metrics')
         try:
             response = session.get(urljoin(api_server_url,
                                            '/api/v1/namespaces/kube-system/services/heapster/proxy/apis/metrics/v1alpha1/pods'),
                                    timeout=5)
             response.raise_for_status()
-            for metrics in response.json()['items']:
-                pod = pods_by_namespace_name.get((metrics['metadata']['namespace'], metrics['metadata']['name']))
-                if pod:
-                    for container in pod['containers']:
-                        for container_metrics in metrics['containers']:
-                            if container['name'] == container_metrics['name']:
-                                container['resources']['usage'] = container_metrics['usage']
+            data = response.json()
+            if not data.get('items'):
+                logging.info('Heapster pod metrics not available (yet)')
+            else:
+                for metrics in data['items']:
+                    pod = pods_by_namespace_name.get((metrics['metadata']['namespace'], metrics['metadata']['name']))
+                    if pod:
+                        for container in pod['containers']:
+                            for container_metrics in metrics['containers']:
+                                if container['name'] == container_metrics['name']:
+                                    container['resources']['usage'] = container_metrics['usage']
         except:
-            logging.exception('Failed to get metrics')
-        clusters.append(
-            {'id': cluster_id, 'api_server_url': api_server_url, 'nodes': nodes, 'unassigned_pods': unassigned_pods})
-    return clusters
+            logging.exception('Failed to get pod metrics')
+        yield {'id': cluster_id, 'api_server_url': api_server_url, 'nodes': nodes, 'unassigned_pods': unassigned_pods}
 
 
-@app.route('/kubernetes-clusters')
+def event(cluster_ids: set):
+    while True:
+        for event_type, cluster in STORE.listen():
+            if not cluster_ids or cluster['id'] in cluster_ids:
+                yield 'event: ' + event_type + '\ndata: ' + json.dumps(cluster, separators=(',', ':')) + '\n\n'
+
+
+@app.route('/events')
 @authorize
-def get_clusters():
+def get_events():
+    '''SSE (Server Side Events), for an EventSource'''
     cluster_ids = set()
-    for _id in flask.request.args.get('id', '').split():
+    for _id in flask.request.args.get('cluster_ids', '').split():
         if _id:
             cluster_ids.add(_id)
-    if MOCK:
-        clusters = get_mock_clusters(cluster_ids)
-    else:
-        clusters = get_kubernetes_clusters(cluster_ids)
+    return flask.Response(event(cluster_ids), mimetype='text/event-stream')
 
-    return json.dumps({'kubernetes_clusters': clusters}, separators=(',', ':'))
+
+@app.route('/screen-tokens', methods=['GET', 'POST'])
+@authorize
+def screen_tokens():
+    new_token = None
+    if flask.request.method == 'POST':
+        new_token = STORE.create_screen_token()
+    return flask.render_template('screen-tokens.html', new_token=new_token)
+
+
+@app.route('/screen/<token>')
+def redeem_screen_token(token: str):
+    remote_addr = flask.request.headers.get('X-Forwarded-For') or flask.request.remote_addr
+    logging.info('Trying to redeem screen token "{}" for IP {}..'.format(token, remote_addr))
+    try:
+        STORE.redeem_screen_token(token, remote_addr)
+    except:
+        flask.abort(401)
+    flask.session['auth_token'] = (token, '')
+    return redirect(urljoin(APP_URL, '/'))
 
 
 @app.route('/login')
@@ -347,14 +498,42 @@ def authorized():
     return redirect(urljoin(APP_URL, '/'))
 
 
-@auth.tokengetter
-def get_auth_oauth_token():
-    return flask.session.get('auth_token')
+def update():
+    while True:
+        lock = STORE.acquire_lock()
+        if lock:
+            try:
+                if MOCK:
+                    clusters = get_mock_clusters()
+                else:
+                    clusters = get_kubernetes_clusters()
+                for cluster in clusters:
+                    STORE.publish('clusterupdate', cluster)
+            except:
+                logging.exception('Failed to update')
+            finally:
+                STORE.release_lock(lock)
+        gevent.sleep(5)
+
+
+def shutdown():
+    # just wait some time to give Kubernetes time to update endpoints
+    # this requires changing the readinessProbe's
+    # PeriodSeconds and FailureThreshold appropriately
+    # see https://godoc.org/k8s.io/kubernetes/pkg/api/v1#Probe
+    gevent.sleep(10)
+    exit(0)
+
+
+def exit_gracefully(signum, frame):
+    logging.info('Received TERM signal, shutting down..')
+    SERVER_STATUS['shutdown'] = True
+    gevent.spawn(shutdown)
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    port = 8080
-    http_server = gevent.wsgi.WSGIServer(('0.0.0.0', port), app)
-    logging.info('Listening on :{}..'.format(port))
+    signal.signal(signal.SIGTERM, exit_gracefully)
+    http_server = gevent.wsgi.WSGIServer(('0.0.0.0', SERVER_PORT), app)
+    gevent.spawn(update)
+    logging.info('Listening on :{}..'.format(SERVER_PORT))
     http_server.serve_forever()
