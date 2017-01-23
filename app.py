@@ -278,6 +278,27 @@ def generate_mock_pod(index: int, i: int, j: int):
     return pod
 
 
+def generate_mock_service(pods):
+    ports = random.choices(['8080', '443', '5443', '8888', '7979', '9000', '8000'])
+    service = {
+        'clusterIP': '127.0.0.1',
+        'ports': ports,
+        'selector': {
+            'app': random.choice(['agent-cooper',
+                                  'black-lodge',
+                                  'bob',
+                                  'bobby-briggs'
+                                  'laura-palmer',
+                                  'leland-palmer',
+                                  'log-lady',
+                                  'sheriff-truman', ])
+        },
+        'type': 'Loadbalancer'
+    }
+
+    return service
+
+
 def generate_cluster_id(url: str):
     '''Generate some "cluster ID" from given API server URL'''
     for prefix in ('https://', 'http://'):
@@ -302,6 +323,7 @@ def generate_mock_cluster_data(index: int):
         nodes.append({'name': 'node-{}'.format(i), 'labels': labels,
                       'status': {'capacity': {'cpu': '4', 'memory': '32Gi', 'pods': '110'}}, 'pods': pods})
     unassigned_pods = [generate_mock_pod(index, 11, index)]
+    generate_mock_service(pods)
     return {
         'id': 'mock-cluster-{}'.format(index),
         'api_server_url': 'https://kube-{}.example.org'.format(index),
@@ -365,7 +387,7 @@ def get_kubernetes_clusters():
             obj = {
                 'name': service['metadata']['name'],
                 'namespace': service['metadata']['namespace'],
-                'labels': service['metadata'].get('namespace', {}),
+                'labels': service['metadata'].get('lebels', {}),
                 'clusterIP': service['spec']['clusterIP'],
                 'ports': [service_port['port'] for service_port in service['spec']['ports']],
                 'selector': service['spec']['selector'],
