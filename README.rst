@@ -2,11 +2,15 @@
 Kubernetes Operational View
 ===========================
 
+.. image:: https://travis-ci.org/hjacobs/kube-ops-view.svg?branch=master
+   :target: https://travis-ci.org/hjacobs/kube-ops-view
+   :alt: Travis CI Build Status
+
 .. image:: https://readthedocs.org/projects/kubernetes-operational-view/badge/?version=latest
    :target: http://kubernetes-operational-view.readthedocs.io/en/latest/?badge=latest
    :alt: Documentation Status
 
-**This project is in pre-alpha, but it might already be useful.**
+**This project is in a very early state, but it might already be useful.**
 
 .. image:: screenshot.png
    :alt: Screenshot
@@ -38,23 +42,33 @@ What it is not:
 Usage
 =====
 
-You can run the app locally:
+Running Locally
+---------------
+
+You can run the app locally with ``kubectl proxy`` against your running cluster:
 
 .. code-block:: bash
 
-    $ pip3 install -r requirements.txt
     $ kubectl proxy &
-    $ (cd app && npm start &)
-    $ ./app.py
+    $ docker run -it --net=host hjacobs/kube-ops-view
 
 Now direct your browser to http://localhost:8080
+
+You can also try the UI with the integrated mock mode. This does not require any Kubernetes cluster access:
+
+.. code-block:: bash
+
+    $ docker run -it -p 8080:8080 hjacobs/kube-ops-view --mock
+
+Installation
+------------
 
 You can find example Kubernetes manifests for deployment in the ``deploy`` folder.
 It should be as simple as:
 
 .. code-block:: bash
 
-    $ kubectl apply -f deploy/deployment.yaml -f deploy/service.yaml
+    $ kubectl apply -f deploy  # apply all manifests from the folder
 
 Afterwards you can open "kube-ops-view" via the kubectl proxy:
 
@@ -64,33 +78,41 @@ Afterwards you can open "kube-ops-view" via the kubectl proxy:
 
 Now direct your browser to http://localhost:8001/api/v1/proxy/namespaces/default/services/kube-ops-view/
 
+There is also a `pending PR to make Kubernetes Operational View available as a Helm Chart`_.
 
-Mock Mode
-=========
+.. _pending PR to make Kubernetes Operational View available as a Helm Chart: https://github.com/kubernetes/charts/pull/398
 
-You can start the app in "mock mode" to see all UI features without running any Kubernetes cluster:
+
+Development
+===========
+
+The app can be started in "mock mode" to work on UI features without running any Kubernetes cluster:
 
 .. code-block:: bash
 
     $ pip3 install -r requirements.txt
-    $ (cd app && npm start &)
-    $ MOCK=true ./app.py
+    $ (cd app && npm start &)  # watch and compile JS bundle
+    $ python3 -m kube_ops_view --mock --debug
 
-You can also run the latest Docker image directly:
+
+Building
+========
+
+The provided ``Makefile`` will generate a Docker image by default:
 
 .. code-block:: bash
 
-    $ docker run -it -p 8080:8080 -e MOCK=true hjacobs/kube-ops-view
+    $ make
 
 
 Multiple Clusters
 =================
 
-Multiple clusters are supported by passing a list of API server URLs in the ``CLUSTERS`` environment variable.
-These can either be unprotected ``localhost`` URLs or OAuth 2 protected API endpoints.
-Note that authentication via client-certificates is currently not supported!
+Multiple clusters are supported by passing a list of API servers, reading a kubeconfig file or pointing to an HTTP Cluster Registry endpoint.
 
-The needed OAuth credentials (``Bearer`` access token) must be provided via a file ``${CREDENTIALS_DIR}/read-only-token``.
+See the `documentation on multiple clusters`_ for details.
+
+.. _documentation on multiple clusters: https://kubernetes-operational-view.readthedocs.io/en/latest/multiple-clusters.html
 
 
 Configuration
@@ -104,12 +126,20 @@ The following environment variables are supported:
     Optional token endpoint URL for the OAuth 2 Authorization Code Grant flow.
 ``CLUSTERS``
     Comma separated list of Kubernetes API server URLs. It defaults to ``http://localhost:8001/`` (default endpoint of ``kubectl proxy``).
+``CLUSTER_REGISTRY_URL``
+    URL to cluster registry returning list of Kubernetes clusters.
 ``CREDENTIALS_DIR``
     Directory to read (OAuth) credentials from --- these credentials are only used for non-localhost cluster URLs.
 ``DEBUG``
     Set to "true" for local development to reload code changes.
+``KUBECONFIG_PATH``
+    Path to kubeconfig file to use for cluster access.
+``KUBECONFIG_CONTEXTS``
+    Comma separated list of contexts to use when reading the kubeconfig file from ``KUBECONFIG_PATH``.
 ``MOCK``
     Set to "true" to mock Kubernetes cluster data.
+``QUERY_INTERVAL``
+    Interval in seconds for querying clusters (default: 5). Each cluster will at most queried once per configured interval.
 ``REDIS_URL``
     Optional Redis server to use for pub/sub events and job locking when running more than one replica. Example: ``redis://my-redis:6379``
 ``SERVER_PORT``

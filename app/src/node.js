@@ -30,17 +30,22 @@ export default class Node extends PIXI.Graphics {
                 resources[key]['used'] = parseResource(this.node.usage[key])
             }
         }
-        for (const pod of this.node.pods) {
-            for (const container of pod.containers) {
-                if (container.resources && container.resources.requests) {
-                    for (const key of Object.keys(container.resources.requests)) {
-                        resources[key].requested += parseResource(container.resources.requests[key])
+        let numberOfPods = 0
+        for (const pod of Object.values(this.node.pods)) {
+            numberOfPods++
+            // do not account for completed jobs
+            if (pod.phase != 'Succeeded') {
+                for (const container of pod.containers) {
+                    if (container.resources && container.resources.requests) {
+                        for (const key of Object.keys(container.resources.requests)) {
+                            resources[key].requested += parseResource(container.resources.requests[key])
+                        }
                     }
                 }
             }
         }
-        resources['pods'].requested = this.node.pods.length
-        resources['pods'].used = this.node.pods.length
+        resources['pods'].requested = numberOfPods
+        resources['pods'].used = numberOfPods
         return resources
     }
 
@@ -89,7 +94,7 @@ export default class Node extends PIXI.Graphics {
         const nodeBox = this
         let px = 24
         let py = 20
-        const pods = this.node.pods.sort(sorterFn)
+        const pods = Object.values(this.node.pods).sort(sorterFn)
         for (const pod of pods) {
             if (pod.namespace != 'kube-system') {
                 const podBox = Pod.getOrCreate(pod, this.cluster, this.tooltip)
