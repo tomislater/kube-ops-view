@@ -1,9 +1,9 @@
 import datetime
 import logging
-import time
 from urllib.parse import urljoin
 
 import requests
+import time
 
 from .utils import get_short_error_message
 
@@ -45,6 +45,38 @@ def map_container(cont: dict, pod: dict):
     if status:
         obj.update(**status[0])
     return obj
+
+
+def map_service(service: dict):
+    obj = {
+        'name': service['metadata']['name'],
+        'namespace': service['metadata']['namespace'],
+        'labels': service['metadata'].get('lebels', {}),
+        'clusterIP': service['spec']['clusterIP'],
+        'ports': [service_port['port'] for service_port in service['spec']['ports']],
+        'selector': service['spec']['selector'],
+        'type': service['spec']['type']
+    }
+    if 'creationTimestamp' in service['metadata']:
+        obj['creationTimestamp'] = parse_time(service['metadata']['creationTimestamp'])
+    return obj
+
+
+def map_endpoint(subset: array):
+    endpoint = {
+        'ports': [endpoint_port['port'] for endpoint_port in subset['ports']],
+        'addresses': []
+    }
+    for address in subset['addresses']:
+        address_item = {
+            'ip': address['ip'],
+            'nodeName': address['nodeName'],
+            'kind': address['targetRef']['kind'],
+            'namespace': address['targetRef']['namespace'],
+            'name': address['targetRef']['name']
+        }
+        endpoint['addresses'].append(address_item)
+    return endpoint
 
 
 def request(cluster, path, **kwargs):
@@ -97,9 +129,25 @@ def query_kubernetes_cluster(cluster):
             nodes[pod['spec']['nodeName']]['pods'][pod_key] = obj
         else:
             unassigned_pods[pod_key] = obj
-
+    # getting services
+    response = request(cluster, '/api/v1/services')
+    response.raise_for_status()
+    services = {}
+    for service in response.json()['items']:
+        obj = map_service(service)
+        # getting endpoints for that specific service
+        response = request(cluster, '/api/v1/namespaces/{namespace}/endpoints/{service_name}'.format(
+            namespace=obj['namespace'], service_name=['name']))
+        response.raise_for_status()
+        for subset in response.json()['subsets']:
+            endpoint = map_endpoint(subset)
+            obj.endpoints.append(endpoint)
+    for subset in response.json()['subsets']:
+        obj.endpoints.append(map_endpoint(subset))
+        services[obj['name']] = obj
     try:
-        response = request(cluster, '/api/v1/namespaces/kube-system/services/heapster/proxy/apis/metrics/v1alpha1/nodes')
+        response = request(cluster,
+                           '/api/v1/namespaces/kube-system/services/heapster/proxy/apis/metrics/v1alpha1/nodes')
         response.raise_for_status()
         data = response.json()
         if not data.get('items'):
