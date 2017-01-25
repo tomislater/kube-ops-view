@@ -51,7 +51,7 @@ def map_service(service: dict):
     obj = {
         'name': service['metadata']['name'],
         'namespace': service['metadata']['namespace'],
-        'labels': service['metadata'].get('lebels', {}),
+        'labels': service['metadata'].get('labels', {}),
         'clusterIP': service['spec']['clusterIP'],
         'ports': [service_port['port'] for service_port in service['spec']['ports']],
         'selector': service['spec']['selector'],
@@ -62,20 +62,27 @@ def map_service(service: dict):
     return obj
 
 
-def map_endpoint(subset: array):
+def map_endpoint(endpoint: dict):
     endpoint = {
-        'ports': [endpoint_port['port'] for endpoint_port in subset['ports']],
-        'addresses': []
+        'name': endpoint['metadata']['name'],
+        'namespace': endpoint['metadata']['namespace'],
+        'subsets': [],
     }
-    for address in subset['addresses']:
-        address_item = {
-            'ip': address['ip'],
-            'nodeName': address['nodeName'],
-            'kind': address['targetRef']['kind'],
-            'namespace': address['targetRef']['namespace'],
-            'name': address['targetRef']['name']
+    for subset in endpoint['subsets']:
+        subset_item = {
+            'addresses': [],
+            'ports': [endpoint_port['port'] for endpoint_port in subset['ports']]
         }
-        endpoint['addresses'].append(address_item)
+        for address in subset['addresses']:
+            address_item = {
+                'ip': address['ip'],
+                'nodeName': address['nodeName'],
+                'kind': address['targetRef']['kind'],
+                'namespace': address['targetRef']['namespace'],
+                'name': address['targetRef']['name']
+            }
+            subset_item['addresses'].append(address_item)
+        endpoint['subsets'].append(subset_item)
     return endpoint
 
 
@@ -139,11 +146,7 @@ def query_kubernetes_cluster(cluster):
         response = request(cluster, '/api/v1/namespaces/{namespace}/endpoints/{service_name}'.format(
             namespace=obj['namespace'], service_name=['name']))
         response.raise_for_status()
-        for subset in response.json()['subsets']:
-            endpoint = map_endpoint(subset)
-            obj.endpoints.append(endpoint)
-    for subset in response.json()['subsets']:
-        obj.endpoints.append(map_endpoint(subset))
+        obj.endpoint = map_endpoint(response)
         services[obj['name']] = obj
     try:
         response = request(cluster,
@@ -177,5 +180,6 @@ def query_kubernetes_cluster(cluster):
         'id': cluster_id,
         'api_server_url': api_server_url,
         'nodes': nodes,
-        'unassigned_pods': unassigned_pods
+        'unassigned_pods': unassigned_pods,
+        'services': services
     }
