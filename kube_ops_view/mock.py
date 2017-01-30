@@ -54,7 +54,7 @@ def generate_mock_pod(index: int, i: int, j: int):
 def generate_mock_services(pods, nodes):
     services = []
     for name in names:
-        ports = random.choices(['8080', '443', '5443', '8888', '7979', '9000', '8000'])
+        ports = [random.choice(['8080', '443', '5443', '8888', '7979', '9000', '8000'])]
         service = {
             'name': name,
             'namespace': 'default',

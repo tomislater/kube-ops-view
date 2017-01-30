@@ -1,6 +1,6 @@
 language: python
 python:
-  - "3.6"
+  - "3.5"
 install:
   - pip install tox tox-travis coveralls
   - nvm install 7.4
@@ -9,3 +9,4 @@ script:
   - tox
 after_success:
   - coveralls
+                                                                                   k
