@@ -37,10 +37,11 @@ def generate_mock_pod(index: int, i: int, j: int):
     containers = []
     for k in range(1 + j % 2):
         # generate "more real data"
-        requests_cpu = random.randint(50, 100)
-        requests_memory = random.randint(256, 512)
-        usage_cpu = requests_cpu + random.randint(-45, 50)
-        usage_memory = requests_memory + random.randint(-128, 128)
+        requests_cpu = random.randint(10, 50)
+        requests_memory = random.randint(64, 256)
+        # with max, we defend against negative cpu/memory ;)
+        usage_cpu = max(requests_cpu + random.randint(-30, 30), 1)
+        usage_memory = max(requests_memory + random.randint(-64, 128), 1)
         container = {
             'name': 'myapp',
             'image': 'foo/bar/{}'.format(j),
@@ -78,7 +79,7 @@ def query_mock_cluster(cluster):
     '''Generate deterministic (no randomness!) mock data'''
     index = int(cluster.id.split('-')[-1])
     nodes = {}
-    for i in range(10):
+    for i in range(20):
         # add/remove the second to last node every 13 seconds
         if i == 8 and int(time.time() / 13) % 2 == 0:
             continue
@@ -91,9 +92,9 @@ def query_mock_cluster(cluster):
             else:
                 labels['master'] = 'true'
         pods = {}
-        for j in range(hash_int((index + 1) * (i + 1)) % 32):
+        for j in range(hash_int((index + 1) * (i + 1)) % 128):
             # add/remove some pods every 7 seconds
-            if j % 17 == 0 and int(time.time() / 7) % 2 == 0:
+            if j % 17 == 0 and int(time.time() / 60) % 2 == 0:
                 pass
             else:
                 pod = generate_mock_pod(index, i, j)
@@ -111,8 +112,8 @@ def query_mock_cluster(cluster):
             'name': 'node-{}'.format(i),
             'labels': labels,
             'status': {
-                'capacity': {'cpu': '4', 'memory': '32Gi', 'pods': '110'},
-                'allocatable': {'cpu': '3800m', 'memory': '31Gi'}
+                'capacity': {'cpu': '8', 'memory': '64Gi', 'pods': '110'},
+                'allocatable': {'cpu': '7500m', 'memory': '62Gi'}
             },
             'pods': pods,
             # get data from containers (usage)

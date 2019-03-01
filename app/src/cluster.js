@@ -39,6 +39,7 @@ export default class Cluster extends PIXI.Graphics {
         let workerHeight = 0
         const workerNodes = []
         const maxWidth = window.innerWidth - 130
+        let nodesPerRow = Infinity
         for (const nodeName of Object.keys(this.cluster.nodes).sort()) {
             const node = this.cluster.nodes[nodeName]
             var nodeBox = new Node(node, this, this.tooltip)
@@ -50,26 +51,43 @@ export default class Cluster extends PIXI.Graphics {
                     masterY += nodeBox.height + padding
                     masterHeight += nodeBox.height + padding
                 }
-                if (masterHeight == 0) {
-                    masterHeight = nodeBox.height + padding
+                // there might be case when second master is larger, so we should
+                // compute this for every master and keep the max
+                const tempMasterHeight = nodeBox.height + padding
+                if (tempMasterHeight >= masterHeight) {
+                    masterHeight = tempMasterHeight
                 }
                 nodeBox.x = masterX
                 nodeBox.y = masterY
                 masterX += nodeBox.width + padding
             } else {
                 if (workerX > maxWidth) {
+                    nodesPerRow = Math.floor(workerX / (nodeBox.width + padding))
+                    // get node from above, with this
+                    const nodeBoxAbove = workerNodes[workerNodes.length % nodesPerRow]
                     workerWidth = workerX
                     workerX = left
-                    workerY += nodeBox.height + padding
-                    workerHeight += nodeBox.height + padding
+                    workerY += nodeBoxAbove.height + padding
+                    workerHeight += nodeBoxAbove.height + padding
                 }
-                workerNodes.push(nodeBox)
-                if (workerHeight == 0) {
-                    workerHeight = nodeBox.height + padding
+
+                // it is used for drawing a cluster (height)
+                const tempWorkerHeight = nodeBox.height + padding
+                if (tempWorkerHeight >= workerHeight) {
+                    workerHeight = tempWorkerHeight
                 }
                 nodeBox.x = workerX
-                nodeBox.y = workerY
+                
+                if (workerNodes.length > nodesPerRow) {
+                    const nodeBoxAbove = workerNodes[workerNodes.length % nodesPerRow]
+                    nodeBox.y = nodeBoxAbove.height + padding + top
+                } else {
+                    nodeBox.y = workerY
+                }
+
                 workerX += nodeBox.width + padding
+
+                workerNodes.push(nodeBox)
             }
             this.addChild(nodeBox)
         }

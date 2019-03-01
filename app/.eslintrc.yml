@@ -19,6 +19,7 @@ rules:
     - error
   no-redeclare:
     - error
+  no-console: 0
   no-unused-vars:
     - warn
     - argsIgnorePattern: "^_"
