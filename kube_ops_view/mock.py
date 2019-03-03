@@ -64,7 +64,7 @@ def generate_mock_pod(index: int, i: int, j: int):
         containers.append(container)
     pod = {
         'name': '{}-{}-{}'.format(names[hash_int((i + 1) * (j + 1)) % len(names)], i, j),
-        'namespace': 'kube-system' if j < 3 else 'default',
+        'namespace': 'kube-system' if j % 5 == 0 else 'default',
         'labels': pod_labels,
         'phase': phase,
         'containers': containers
@@ -79,7 +79,7 @@ def query_mock_cluster(cluster):
     '''Generate deterministic (no randomness!) mock data'''
     index = int(cluster.id.split('-')[-1])
     nodes = {}
-    for i in range(20):
+    for i in range(10):
         # add/remove the second to last node every 13 seconds
         if i == 8 and int(time.time() / 13) % 2 == 0:
             continue
@@ -92,7 +92,7 @@ def query_mock_cluster(cluster):
             else:
                 labels['master'] = 'true'
         pods = {}
-        for j in range(hash_int((index + 1) * (i + 1)) % 128):
+        for j in range(hash_int((index + 1) * (i + 1)) % 32):
             # add/remove some pods every 7 seconds
             if j % 17 == 0 and int(time.time() / 60) % 2 == 0:
                 pass

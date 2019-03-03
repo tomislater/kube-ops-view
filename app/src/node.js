@@ -5,12 +5,13 @@ import App from './app'
 const PIXI = require('pixi.js')
 
 export default class Node extends PIXI.Graphics {
-    constructor(node, cluster, tooltip) {
+    constructor(node, cluster, tooltip, podsPerRow) {
         super()
         this.node = node
         this.cluster = cluster
         this.tooltip = tooltip
         this.sizeOfPod = 13
+        this.podsPerRow = podsPerRow
     }
 
     isMaster() {
@@ -64,8 +65,13 @@ export default class Node extends PIXI.Graphics {
     draw() {
         const nodeBox = this
         const topHandle = new PIXI.Graphics()
-        const width = 105
         const heightOfTopHandle = 15
+        // let's find width
+        // (width - 24) / numberOfPods = 13.5
+        const width = Math.max(105, Math.floor(nodeBox.podsPerRow * nodeBox.sizeOfPod + 24 + 2))
+        const height = Math.max(115, Math.floor(
+            nodeBox.podsPerRow * nodeBox.sizeOfPod + heightOfTopHandle + (nodeBox.sizeOfPod * 2) + 2
+        ))
         topHandle.beginFill(App.current.theme.primaryColor, 1)
         topHandle.drawRect(0, 0, width, heightOfTopHandle)
         topHandle.endFill()
@@ -78,11 +84,12 @@ export default class Node extends PIXI.Graphics {
 
         // add nodeBox.sizeOfPod, becuase we want to draw the bottom of node under the pods (create an invisible row of pods)
         // add 2, becuase we want to have a span between pods and the node
-        const heightOfNode = nodeBox.addPods(App.current.sorterFn) + nodeBox.sizeOfPod + 2
+        nodeBox.addPods(App.current.sorterFn, height)
 
         nodeBox.lineStyle(2, App.current.theme.primaryColor, 1)
         nodeBox.beginFill(App.current.theme.secondaryColor, 1)
-        nodeBox.drawRect(0, 0, width, heightOfNode)
+        // let's find height
+        nodeBox.drawRect(0, 0, width, height)
         nodeBox.endFill()
         nodeBox.lineStyle(2, 0xaaaaaa, 1)
         topHandle.interactive = true
@@ -103,19 +110,16 @@ export default class Node extends PIXI.Graphics {
         const bars = new Bars(nodeBox, resources, nodeBox.tooltip)
         bars.x = 0
         bars.y = 1
-        nodeBox.addChild(bars.draw(heightOfNode))
+        nodeBox.addChild(bars.draw(height))
 
         return nodeBox
     }
 
-    addPods(sorterFn) {
+    addPods(sorterFn, height) {
         const nodeBox = this
         const px = 24
         const py = 20
         let podsCounter = 0
-        // with this we can change it with env variable in the future
-        // or just use const width? it does not matter now...
-        const podsInRow = 6
         const pods = Object.values(this.node.pods).sort(sorterFn)
         for (const pod of pods) {
             if (pod.namespace != 'kube-system') {
@@ -123,9 +127,9 @@ export default class Node extends PIXI.Graphics {
                 podBox.movePodTo(
                     new PIXI.Point(
                         // we have a room for six pods
-                        px + (nodeBox.sizeOfPod * (podsCounter % podsInRow)),
+                        px + (nodeBox.sizeOfPod * (podsCounter % nodeBox.podsPerRow)),
                         // there is no restrictions in height of the node, so just count when we have to get to another row
-                        py + (nodeBox.sizeOfPod * Math.floor(podsCounter / podsInRow))
+                        py + (nodeBox.sizeOfPod * Math.floor(podsCounter / nodeBox.podsPerRow))
                     )
                 )
                 nodeBox.addChild(podBox.draw())
@@ -134,13 +138,6 @@ export default class Node extends PIXI.Graphics {
             }
         }
 
-        // let's see the height of the current pods
-        // --podsCounter becuase there is a podsCounter++ above ;D
-        // we need to decrease this counter here
-        let currentHeightOfPods = py + (nodeBox.sizeOfPod * Math.floor(--podsCounter / podsInRow))
-
-        // we just want to place pods from kube-system namespace two rows below
-        currentHeightOfPods += (nodeBox.sizeOfPod * 2)
         podsCounter = 0
         
         for (const pod of pods) {
@@ -148,15 +145,13 @@ export default class Node extends PIXI.Graphics {
                 const podBox = Pod.getOrCreate(pod, this.cluster, this.tooltip)
                 podBox.movePodTo(
                     new PIXI.Point(
-                        px + (nodeBox.sizeOfPod * (podsCounter % podsInRow)),
-                        currentHeightOfPods + (nodeBox.sizeOfPod * Math.floor(podsCounter / podsInRow))
+                        px + (nodeBox.sizeOfPod * (podsCounter % nodeBox.podsPerRow)),
+                        height - nodeBox.sizeOfPod - 2 - (nodeBox.sizeOfPod * Math.floor(podsCounter / nodeBox.podsPerRow))
                     )
                 )
                 nodeBox.addChild(podBox.draw())
                 podsCounter++
             }
         }
-
-        return currentHeightOfPods + (nodeBox.sizeOfPod * Math.floor(--podsCounter / podsInRow))
     }
 }

@@ -40,9 +40,18 @@ export default class Cluster extends PIXI.Graphics {
         const workerNodes = []
         const maxWidth = window.innerWidth - 130
         let nodesPerRow = Infinity
+        let maxPods = 0
+        for (const n of Object.values(this.cluster.nodes)) {
+            // const podsInNode = Object.values(n.pods).filter(p => p.namespace != 'kube-system').length
+            const podsInNode = Object.values(n.pods).length
+            // const podsInNodeKubeSystem = Object.values(n.pods).filter(p => p.namespace === 'kube-system').length
+            if (podsInNode >= maxPods) {
+                maxPods = podsInNode
+            }
+        }
         for (const nodeName of Object.keys(this.cluster.nodes).sort()) {
             const node = this.cluster.nodes[nodeName]
-            var nodeBox = new Node(node, this, this.tooltip)
+            var nodeBox = new Node(node, this, this.tooltip, Math.max(6, Math.ceil(Math.sqrt(maxPods))))
             nodeBox.draw()
             if (nodeBox.isMaster()) {
                 if (masterX > maxWidth) {
@@ -78,12 +87,13 @@ export default class Cluster extends PIXI.Graphics {
                 }
                 nodeBox.x = workerX
                 
-                if (workerNodes.length > nodesPerRow) {
-                    const nodeBoxAbove = workerNodes[workerNodes.length % nodesPerRow]
-                    nodeBox.y = nodeBoxAbove.height + padding + top
-                } else {
-                    nodeBox.y = workerY
-                }
+                // if (workerNodes.length > nodesPerRow) {
+                //     const nodeBoxAbove = workerNodes[workerNodes.length % nodesPerRow]
+                //     nodeBox.y = nodeBoxAbove.height + padding + top
+                // } else {
+                //     nodeBox.y = workerY
+                // }
+                nodeBox.y = workerY
 
                 workerX += nodeBox.width + padding
 
